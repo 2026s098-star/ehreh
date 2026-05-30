@@ -19,14 +19,15 @@ import {
   Calendar,
   Sparkles,
   HelpCircle,
-  GraduationCap
+  GraduationCap,
+  Copy
 } from "lucide-react";
 import { HISTORICAL_SOURCES, CURRICULUM_LESSONS, DOKDO_QUIZ } from "./data";
-import { LessonId, SourceDocument, ReviewResponse } from "./types";
+import { LessonId, SourceDocument, ReviewResponse, ReflectionResponse } from "./types";
 import ObservabilitySimulator from "./components/ObservabilitySimulator";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<LessonId>("lesson1");
+  const [activeTab, setActiveTab] = useState<LessonId | "reflection">("lesson1");
   const [selectedSourceId, setSelectedSourceId] = useState<string>("sejong");
   const [sourceFilter, setSourceFilter] = useState<"all" | "KOR" | "JPN">("all");
   
@@ -49,6 +50,15 @@ export default function App() {
 
   // Address cards interaction states
   const [activeAddressCard, setActiveAddressCard] = useState<"isabu" | "ahn" | null>(null);
+
+  // Reflection generator states
+  const [reflectionKeywords, setReflectionKeywords] = useState<string>("");
+  const [reflectionStudentName, setReflectionStudentName] = useState<string>("");
+  const [isGeneratingReflection, setIsGeneratingReflection] = useState<boolean>(false);
+  const [reflectionResult, setReflectionResult] = useState<ReflectionResponse | null>(null);
+  const [reflectionError, setReflectionError] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState<boolean>(false);
+
 
   // Load API status checked on launch
   useEffect(() => {
@@ -145,6 +155,81 @@ export default function App() {
     setQuizScore(0);
     setQuizCompleted(false);
   };
+
+  // Generate reflection statement handler
+  const handleGenerateReflection = async () => {
+    if (!reflectionKeywords.trim()) {
+      setReflectionError("소감문에 녹여낼 주요 핵심 단어(키워드)를 기입하십시오.");
+      return;
+    }
+    
+    setIsGeneratingReflection(true);
+    setReflectionResult(null);
+    setReflectionError(null);
+    setIsCopied(false);
+
+    try {
+      const response = await fetch("/api/gemini/reflection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keywords: reflectionKeywords,
+          studentName: reflectionStudentName || "이지호"
+        }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.error || "Gemini 소감문 완성 도중 응답 예외가 일어났습니다.");
+      }
+
+      const result = await response.json();
+      setReflectionResult(result);
+    } catch (err: any) {
+      console.error(err);
+      setReflectionError(err.message || "서버 혹은 네트워크 통신망에 이상이 있습니다.");
+    } finally {
+      setIsGeneratingReflection(false);
+    }
+  };
+
+  const handleCopyReflection = () => {
+    if (!reflectionResult) return;
+    const fullText = `[독도 평화 에세이 소감문]\n우리가 적은 키워드: ${reflectionKeywords}\n\n제목: ${reflectionResult.title}\n\n내용:\n${reflectionResult.content}\n\n오늘의 교훈:\n"${reflectionResult.keyMessage}"\n\n해시태그: ${reflectionResult.tags.join(" ")}`;
+    
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(fullText).then(() => {
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      });
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = fullText;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
+  };
+
+  const toggleKeywordChip = (chip: string) => {
+    if (reflectionKeywords.includes(chip)) {
+      const list = reflectionKeywords
+        .split(",")
+        .map((k) => k.trim())
+        .filter((k) => k !== chip && k.length > 0);
+      setReflectionKeywords(list.join(", "));
+    } else {
+      if (reflectionKeywords.trim()) {
+        setReflectionKeywords(reflectionKeywords + ", " + chip);
+      } else {
+        setReflectionKeywords(chip);
+      }
+    }
+  };
+
 
   // Safe fetch values
   const currentSource = HISTORICAL_SOURCES.find(s => s.id === selectedSourceId) || HISTORICAL_SOURCES[0];
@@ -248,6 +333,22 @@ export default function App() {
                 >
                   <Award className="w-4 h-4 shrink-0 text-indigo-400" />
                   <span className="text-xs font-semibold">독도 평화 성찰 퀴즈</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("reflection")}
+                  className={`w-full text-left px-3.5 py-3 rounded-xl flex items-center gap-3 cursor-pointer transition-all duration-200 ${
+                    activeTab === "reflection" 
+                      ? "bg-white/10 text-white shadow-md border-l-4 border-teal-500" 
+                      : "text-slate-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  id="tab-reflection"
+                >
+                  <Sparkles className="w-4 h-4 shrink-0 text-teal-400" />
+                  <span className="text-xs font-semibold flex items-center justify-between w-full">
+                    <span>독도 소감문 자동완성</span>
+                    <span className="bg-teal-500/20 text-[9px] text-teal-300 font-bold px-1.5 py-0.5 rounded-full uppercase border border-teal-500/30">AI</span>
+                  </span>
                 </button>
               </div>
             </nav>
@@ -1140,6 +1241,227 @@ export default function App() {
 
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 6: AI REFLECTION WRITER */}
+        {activeTab === "reflection" && (
+          <div className="space-y-8 animate-fade-in" id="reflection-container">
+            {/* Banner Overview */}
+            <div className="bg-white/10 border border-white/20 backdrop-blur-md p-6 rounded-[2rem] relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/10 rounded-full blur-2xl pointer-events-none"></div>
+              <span className="text-[10px] bg-teal-500 text-slate-950 font-bold px-2 py-0.5 rounded-full inline-block uppercase tracking-wider mb-2">지구 시민 성찰 마당</span>
+              <h2 className="text-xl md:text-2xl font-bold text-white mb-2">AI 독도 수업 평화 성찰 소감문 작성소</h2>
+              <p className="text-xs md:text-sm text-slate-300 leading-relaxed max-w-4xl">
+                독도 주권 교육 하이라이트를 종합하여 품격 있는 '역사 평화 소감문'을 자동으로 작성합니다. 
+                배운 내용 중 가슴속에 남은 핵심 단어들을 아래에서 선택하거나 기입하면, AI 조율가가 명작 소감문을 지어 드립니다.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Form Input Column */}
+              <div className="lg:col-span-5 bg-white/5 border border-white/10 rounded-[2rem] p-6 backdrop-blur-sm space-y-6">
+                <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                  <h3 className="font-bold text-sm text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-teal-400" />
+                    성찰 키워드 융합 양식
+                  </h3>
+                </div>
+
+                {/* Student Name */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">학생 성명</label>
+                  <input
+                    type="text"
+                    placeholder="예: 이지호"
+                    value={reflectionStudentName}
+                    onChange={(e) => setReflectionStudentName(e.target.value)}
+                    className="w-full bg-slate-950/60 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-teal-500/50"
+                  />
+                </div>
+
+                {/* Keyword Recommendation Chips */}
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
+                    추천 학술 키워드 리스트 (클릭하여 추가/제거)
+                  </label>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {[
+                      "세종실록지리지",
+                      "태정관지령",
+                      "수평선 87.4km",
+                      "평화선 선포",
+                      "안용복 울릉담판",
+                      "동해 평화 상생",
+                      "영토 주권"
+                    ].map((chip) => {
+                      const isSelected = reflectionKeywords.includes(chip);
+                      return (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => toggleKeywordChip(chip)}
+                          className={`text-[11px] px-2.5 py-1.5 rounded-lg border font-semibold transition cursor-pointer ${
+                            isSelected
+                              ? "bg-teal-500/20 border-teal-400 text-teal-300 shadow-md shadow-teal-500/10"
+                              : "bg-white/5 border-white/5 hover:bg-white/10 text-slate-400"
+                          }`}
+                        >
+                          {isSelected ? "✓ " : "+ "}
+                          {chip}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Reflection sentence Input with keywords list */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
+                    직접 입력 및 조합된 핵심 단어 (쉼표로 구분 가능)
+                  </label>
+                  <textarea
+                    placeholder="예: 세종실록지리지, 태정관지령, 수평선 87.4km, 평화선 선포..."
+                    value={reflectionKeywords}
+                    onChange={(e) => setReflectionKeywords(e.target.value)}
+                    rows={4}
+                    className="w-full bg-slate-950/60 border border-white/10 rounded-2xl p-4 text-xs text-white leading-relaxed focus:outline-none focus:border-teal-500/50 resize-none font-medium"
+                  />
+                  <span className="text-[10px] text-slate-400 block pt-0.5">
+                    * 위 추천 전술 단어칩을 누르거나 직접 자유롭게 입력하십시오.
+                  </span>
+                </div>
+
+                {/* Generate Button */}
+                <button
+                  onClick={handleGenerateReflection}
+                  disabled={isGeneratingReflection || !reflectionKeywords.trim()}
+                  className={`w-full py-3.5 rounded-2xl font-bold uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    isGeneratingReflection || !reflectionKeywords.trim()
+                      ? "bg-white/5 border border-white/15 text-slate-400 cursor-not-allowed"
+                      : "bg-teal-600 hover:bg-teal-500 text-white shadow-lg shadow-teal-500/10"
+                  }`}
+                >
+                  {isGeneratingReflection ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                      AI 독도에세이 집필 위원 가동 중...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-white" />
+                      나만의 독도 성찰 소감문 전격 작성하기
+                    </>
+                  )}
+                </button>
+
+                {/* Errors display */}
+                {reflectionError && (
+                  <div className="p-3.5 bg-rose-500/15 border border-rose-500/20 rounded-xl text-xs text-rose-300">
+                    {reflectionError}
+                  </div>
+                )}
+              </div>
+
+              {/* Showcase Column */}
+              <div className="lg:col-span-7 bg-white/10 border border-white/20 rounded-[2.5rem] p-6 md:p-8 backdrop-blur-md flex flex-col justify-between">
+                
+                {!reflectionResult && !isGeneratingReflection && (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8 border border-dashed border-white/10 rounded-[2rem] bg-slate-950/30 my-auto min-h-[460px]">
+                    <Sparkles className="w-12 h-12 text-slate-500 mb-4 animate-bounce" />
+                    <h4 className="text-sm font-bold text-white">소감문 수령대기 화면</h4>
+                    <p className="text-xs text-slate-400 max-w-sm leading-relaxed mt-2">
+                      왼쪽 서식에 이름과 키워드를 선택하고 '소감문 전격 작성하기' 버튼을 누르면, 감성을 자극하는 완성도 높은 에세이가 여기에 출간됩니다.
+                    </p>
+                  </div>
+                )}
+
+                {isGeneratingReflection && (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8 my-auto min-h-[460px]">
+                    <div className="relative w-16 h-16 mb-4">
+                      <div className="absolute inset-0 border-4 border-teal-500/20 border-t-teal-500 rounded-full animate-spin"></div>
+                      <div className="absolute inset-2 border-4 border-indigo-400/20 border-b-indigo-400 rounded-full animate-spin [animation-duration:1.5s]"></div>
+                    </div>
+                    <h4 className="text-sm font-bold text-teal-300">인문 역사 에세이 직조 중</h4>
+                    <p className="text-xs text-slate-400 max-w-sm leading-relaxed mt-2 animate-pulse">
+                      선택된 키워드들을 자연어로 정밀하게 엮고 고증 사료 학술 사실을 보강하여 가치 소감 문서를 조율하고 있습니다. 잠시만 기다려 주십시오...
+                    </p>
+                  </div>
+                )}
+
+                {reflectionResult && (
+                  <div className="space-y-6 animate-fade-in text-slate-200">
+                    
+                    {/* Header */}
+                    <div className="flex justify-between items-start gap-4 border-b border-white/5 pb-4">
+                      <div className="flex-1">
+                        <span className="text-[10px] text-teal-400 uppercase font-bold tracking-widest block mb-1">
+                          Generated by Google Gemini AI
+                        </span>
+                        <h3 className="text-lg md:text-xl font-bold text-white leading-snug">
+                          {reflectionResult.title}
+                        </h3>
+                      </div>
+
+                      <button
+                        onClick={handleCopyReflection}
+                        className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition ${
+                          isCopied 
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                            : "bg-white/5 border-white/10 hover:bg-white/10 text-slate-300 cursor-pointer"
+                        }`}
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            복사 완료!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-slate-400" />
+                            소감문 복사
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Content Paper style */}
+                    <div className="bg-slate-950/60 p-5 rounded-2xl border border-white/5 shadow-inner">
+                      <p className="text-xs md:text-sm leading-relaxed text-slate-200 tracking-wide md:text-justify whitespace-pre-wrap font-sans">
+                        {reflectionResult.content}
+                      </p>
+                    </div>
+
+                    {/* Key message block */}
+                    <div className="bg-indigo-950/20 border-l-4 border-indigo-500 rounded-r-2xl p-4 text-slate-300">
+                      <h4 className="text-[10px] text-indigo-400 uppercase tracking-widest font-black mb-1">오늘의 영토 평화 선언 교훈</h4>
+                      <p className="text-xs font-semibold leading-relaxed italic">
+                        “ {reflectionResult.keyMessage} ”
+                      </p>
+                    </div>
+
+                    {/* Tags List */}
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                      {reflectionResult.tags.map((tag, i) => (
+                        <span 
+                          key={i} 
+                          className="bg-white/5 border border-white/5 text-[10px] text-slate-400 px-2.5 py-1 rounded-lg font-mono font-bold"
+                        >
+                          {tag.startsWith("#") ? tag : `#${tag}`}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="bg-slate-950/40 p-3 rounded-xl border border-white/5 text-[10px] text-slate-400 flex items-center gap-2">
+                      <Info className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span>이 소감문은 학교 포트폴리오, 발표물, 융합 에세이 포스터 작성 시 훌륭한 문맥 뼈대가 됩니다.</span>
+                    </div>
+
+                  </div>
+                )}
+
+              </div>
+            </div>
           </div>
         )}
 

@@ -46,3 +46,11 @@ export interface ReviewResponse {
   revisionKorean: string;
   coAuthorJapaneseViewpoint: string;
 }
+
+export interface ReflectionResponse {
+  title: string;
+  content: string;
+  keyMessage: string;
+  tags: string[];
+}
+

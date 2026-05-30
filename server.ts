@@ -143,6 +143,71 @@ ${draft}
   }
 });
 
+// Auto-generate reflection statement (소감문) based on keywords
+app.post("/api/gemini/reflection", async (req, res) => {
+  try {
+    const { keywords, studentName } = req.body;
+
+    if (!keywords || String(keywords).trim().length < 2) {
+      return res.status(400).json({ error: "키워드를 최소 2단어 혹은 2글자 이상 정확히 기입해 주세요." });
+    }
+
+    const ai = getAiClient();
+
+    const systemInstruction = `
+당신은 독도 영토 주권 평화 교육 포털의 AI 학습 지원관입니다.
+학생이 입력한 핵심 단어(키워드)들을 받아, 품격 있고 서정적이며 역사 정보가 유기적으로 녹아든 300~500자 수준의 '학습 소감문(평화 에세이)'을 자동으로 작성해 주어야 합니다.
+
+[작성 지침]
+1. 학생의 키워들을 자연스럽게 문장 속에 포함시키십시오.
+2. 어조는 차분하고 정갈하며, 배타적 증오나 극단적 비난을 지양하고 '역사적 사실 직시'와 '평화로운 미래 상생'의 의지를 담은 인문학적이고 시적인 학생 에세이 문체로 작성합니다.
+3. 반환은 반드시 아래의 JSON 스키마 규격만을 정확히 준수하여 순수한 JSON으로 응답해 주십시오. 마크다운 따옴표(\`\`\`) 등 불필요한 기호를 포함해서는 안 됩니다.
+`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `
+학생 이름: ${studentName || "이지호"}
+제공된 키워드: ${keywords}
+
+위 키워드들을 정밀 융합하여 청소년 독도 주권 교육 소감문을 작성하여 JSON 형식으로 출력하세요.`,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          required: ["title", "content", "keyMessage", "tags"],
+          properties: {
+            title: {
+              type: Type.STRING,
+              description: "에세이의 서정적이고 깊이 있는 제목 (예: '수평선 너머의 진실과 평화적 상생')",
+            },
+            content: {
+              type: Type.STRING,
+              description: "제공된 키워드가 충실히 반영된 300~500자 분량의 가볍고 성숙한 문학적 소감문 본문",
+            },
+            keyMessage: {
+              type: Type.STRING,
+              description: "소감문 전체를 관통하는 감명 깊고 울림을 주는 한 줄 평화 명언/메시지",
+            },
+            tags: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "소감문과 연관된 세련된 해시태그 목록 (3~4개, 예: ['#세종실록지리지', '#수평선가사성', '#평화학습'])",
+            },
+          },
+        },
+      },
+    });
+
+    const resultText = response.text || "{}";
+    res.json(JSON.parse(resultText));
+  } catch (error: any) {
+    console.error("Gemini Reflection Generation Error:", error);
+    res.status(500).json({ error: error.message || "Gemini 소감문 생성 처리 중 예외가 발생했습니다." });
+  }
+});
+
 // Setup Vite Dev Server / Static Assets Host
 async function setupServer() {
   if (process.env.NODE_ENV !== "production") {
