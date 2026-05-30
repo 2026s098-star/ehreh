@@ -1,0 +1,6 @@
+{
+  "name": "독도 영토 주권 평화 교육 포털",
+  "description": "독도의 지리적 특성, 역사적 사료 및 한일 갈등의 평화적 해결을 위한 중·고등용 역사·지리 평화 학습 포털",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
